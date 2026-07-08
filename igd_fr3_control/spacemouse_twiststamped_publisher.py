@@ -20,6 +20,10 @@ from rclpy.node import Node
 from geometry_msgs.msg import TwistStamped
 from moveit_msgs.srv import ServoCommandType
 from std_srvs.srv import SetBool
+from sensor_msgs.msg import JointState
+
+from franka_msgs.action import Move, Grasp, Homing
+from rclpy.action import ActionClient
 
 from spnav import spnav_open, spnav_poll_event, spnav_close, SpnavMotionEvent, SpnavButtonEvent
 
@@ -129,7 +133,18 @@ class SpaceMousePublisher(Node):
         max_value = self.get_parameter('max_value').value
         deadzone = self.get_parameter('deadzone').value
 
+        # Gripper commands:
+        self.move_client = ActionClient(self, Move, '/franka_gripper/move')
+        self.grasp_client = ActionClient(self, Grasp, '/franka_gripper/grasp')
+        self.home_client = ActionClient(self, Homing, '/franka_gripper/homing')
+
+        self.gripper_state = True # open
+        self.gripper_latest_positions = [0.0, 0.0]
+        self.gripper_prev_positions = [0.0, 0.0]
+
         self._pub = self.create_publisher(TwistStamped, topic, 10)
+        self.subscription = self.create_subscription(JointState, '/franka_gripper/joint_states', self.gripper_joint_state_callback,10)
+
 
         self._configure_servo()
 
@@ -164,6 +179,18 @@ class SpaceMousePublisher(Node):
 
     def _on_timer(self):
         state = self._sm.get_motion_state_transformed()
+        button_state = self._sm.is_button_pressed(1)
+
+
+        if button_state and not (self.gripper_latest_positions[0] - self.gripper_prev_positions[0] > 0.001):
+            print(button_state)
+            if self.gripper_state:
+                self.grasp()
+                print("Closing gripper")
+            else:
+                self.open_gripper()
+                print("Openning gripper")
+            self.gripper_prev_positions = self.gripper_latest_positions
 
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -180,6 +207,26 @@ class SpaceMousePublisher(Node):
     def destroy_node(self):
         self._sm.stop()
         super().destroy_node()
+
+    def gripper_joint_state_callback(self, msg: JointState):
+        self.gripper_latest_positions = msg.position
+        print(self.gripper_latest_positions)
+
+
+
+    def open_gripper(self, width=0.1, speed=0.1):
+        self.move_client.wait_for_server()
+        goal = Move.Goal(width=width, speed=speed)
+        self.gripper_state = False
+        return self.move_client.send_goal_async(goal)
+
+    def grasp(self, width=0.02, speed=0.1, force=20.0, epsilon_inner=0.1, epsilon_outer=0.1):
+        self.grasp_client.wait_for_server()
+        goal = Grasp.Goal(width=width, speed=speed, force=force)
+        goal.epsilon.inner = epsilon_inner
+        goal.epsilon.outer = epsilon_outer
+        self.gripper_state = True
+        return self.grasp_client.send_goal_async(goal)
 
 
 def main(args=None):

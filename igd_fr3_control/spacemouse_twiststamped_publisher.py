@@ -139,8 +139,7 @@ class SpaceMousePublisher(Node):
         self.home_client = ActionClient(self, Homing, '/franka_gripper/homing')
 
         self.gripper_state = True # open
-        self.gripper_latest_positions = [0.0, 0.0]
-        self.gripper_prev_positions = [0.0, 0.0]
+        self.gripper_latest_positions = {}
 
         self._pub = self.create_publisher(TwistStamped, topic, 10)
         self.subscription = self.create_subscription(JointState, '/franka_gripper/joint_states', self.gripper_joint_state_callback,10)
@@ -181,16 +180,15 @@ class SpaceMousePublisher(Node):
         state = self._sm.get_motion_state_transformed()
         button_state = self._sm.is_button_pressed(1)
 
+        print(button_state)
 
-        if button_state and not (self.gripper_latest_positions[0] - self.gripper_prev_positions[0] > 0.001):
-            print(button_state)
+        if button_state:
             if self.gripper_state:
                 self.grasp()
                 print("Closing gripper")
             else:
                 self.open_gripper()
                 print("Openning gripper")
-            self.gripper_prev_positions = self.gripper_latest_positions
 
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -209,9 +207,9 @@ class SpaceMousePublisher(Node):
         super().destroy_node()
 
     def gripper_joint_state_callback(self, msg: JointState):
-        self.gripper_latest_positions = msg.position
-        print(self.gripper_latest_positions)
 
+        self.gripper_latest_positions = msg.position
+ 
 
 
     def open_gripper(self, width=0.1, speed=0.1):

@@ -139,7 +139,7 @@ class SpaceMousePublisher(Node):
         self.home_client = ActionClient(self, Homing, '/franka_gripper/homing')
 
         self.gripper_state = True # open
-        self.gripper_latest_positions = {}
+        self.gripper_reach_flag = True
 
         self._pub = self.create_publisher(TwistStamped, topic, 10)
         self.subscription = self.create_subscription(JointState, '/franka_gripper/joint_states', self.gripper_joint_state_callback,10)
@@ -180,15 +180,13 @@ class SpaceMousePublisher(Node):
         state = self._sm.get_motion_state_transformed()
         button_state = self._sm.is_button_pressed(1)
 
-        print(button_state)
-
-        if button_state:
+        if button_state and self.gripper_reach_flag:
             if self.gripper_state:
-                self.grasp()
-                print("Closing gripper")
+                self.send_grasp(width=0.1)
+                print("opening")
             else:
-                self.open_gripper()
-                print("Openning gripper")
+                self.send_grasp(width=0.0)
+                print("closing")
 
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -207,24 +205,44 @@ class SpaceMousePublisher(Node):
         super().destroy_node()
 
     def gripper_joint_state_callback(self, msg: JointState):
-
         self.gripper_latest_positions = msg.position
  
-
-
-    def open_gripper(self, width=0.1, speed=0.1):
-        self.move_client.wait_for_server()
-        goal = Move.Goal(width=width, speed=speed)
-        self.gripper_state = False
-        return self.move_client.send_goal_async(goal)
-
-    def grasp(self, width=0.02, speed=0.1, force=20.0, epsilon_inner=0.1, epsilon_outer=0.1):
+    def send_grasp(self, width=0.0, speed=0.1, force=20.0,
+                    epsilon_inner=1.0, epsilon_outer=1.0):
+        self.gripper_reach_flag = False
         self.grasp_client.wait_for_server()
-        goal = Grasp.Goal(width=width, speed=speed, force=force)
-        goal.epsilon.inner = epsilon_inner
-        goal.epsilon.outer = epsilon_outer
-        self.gripper_state = True
-        return self.grasp_client.send_goal_async(goal)
+
+        goal_msg = Grasp.Goal()
+        goal_msg.width = width
+        goal_msg.speed = speed
+        goal_msg.force = force
+        goal_msg.epsilon.inner = epsilon_inner
+        goal_msg.epsilon.outer = epsilon_outer
+
+        self._send_goal_future = self.grasp_client.send_goal_async(goal_msg)
+        self._send_goal_future.add_done_callback(self.goal_response_callback)
+        
+
+    def goal_response_callback(self, future):
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().info('Goal rejected')
+            return
+
+        self._get_result_future = goal_handle.get_result_async()
+        self._get_result_future.add_done_callback(self.get_result_callback)
+
+    def get_result_callback(self, future):
+        result = future.result().result
+
+        success = result.success
+        error = result.error
+
+        if success:
+            self.gripper_reach_flag = True
+            self.gripper_state = not self.gripper_state
+
+        self.get_logger().info(f'success: {success}, error: "{error}"')
 
 
 def main(args=None):

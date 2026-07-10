@@ -34,6 +34,8 @@ setup(
             'igd_fr3_control = igd_fr3_control.igd_fr3_control:main',
             'spacemouse_publisher = igd_fr3_control.spacemouse_publisher:main',
             'spacemouse_twiststamped_publisher = igd_fr3_control.spacemouse_twiststamped_publisher:main',
+            'tsdf_grasp_node = igd_fr3_control.tsdf_grasp_node:main',
+            'temp = igd_fr3_control.temp:main',
             'save_extrinsic = igd_fr3_control.save_extrinsic:main'
         ],
     },

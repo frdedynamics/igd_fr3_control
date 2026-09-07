@@ -57,9 +57,14 @@ class Spacemouse(Thread):
         self.motion_event = SpnavMotionEvent([0, 0, 0], [0, 0, 0], 0)
         self.button_state = defaultdict(lambda: False)
         self.tx_zup_spnav = np.array([
-            [0, 0, -1],
+            [0, 0, 1],
             [1, 0, 0],
-            [0, 1, 0]
+            [0, -1, 0]
+        ], dtype=dtype)
+        self.rx_zup_spnav = np.array([
+            [0, 0, -1],
+            [-1, 0, 0],
+            [0, -1, 0]
         ], dtype=dtype)
 
     def get_motion_state(self):
@@ -84,7 +89,7 @@ class Spacemouse(Thread):
         state = self.get_motion_state()
         tf_state = np.zeros_like(state)
         tf_state[:3] = self.tx_zup_spnav @ state[:3]
-        tf_state[3:] = self.tx_zup_spnav @ state[3:]
+        tf_state[3:] = self.rx_zup_spnav @ state[3:]
         return tf_state
 
     def is_button_pressed(self, button_id):
@@ -138,8 +143,9 @@ class SpaceMousePublisher(Node):
         self.grasp_client = ActionClient(self, Grasp, '/franka_gripper/grasp')
         self.home_client = ActionClient(self, Homing, '/franka_gripper/homing')
 
-        self.gripper_state = True # open
+        self.gripper_state = None  # updated from physical gripper joint state
         self.gripper_reach_flag = True
+        self._last_button_state = False
 
         self._pub = self.create_publisher(TwistStamped, topic, 10)
         self.subscription = self.create_subscription(JointState, '/franka_gripper/joint_states', self.gripper_joint_state_callback,10)
@@ -179,14 +185,21 @@ class SpaceMousePublisher(Node):
     def _on_timer(self):
         state = self._sm.get_motion_state_transformed()
         button_state = self._sm.is_button_pressed(1)
+        button_pressed = button_state and not self._last_button_state
+        self._last_button_state = button_state
 
-        if button_state and self.gripper_reach_flag:
-            if self.gripper_state:
-                self.send_grasp(width=0.1)
-                print("opening")
+
+        if button_pressed and self.gripper_reach_flag:
+            if self.gripper_state is None:
+                self.get_logger().warning(
+                    'Gripper state not received yet; ignoring button press.'
+                )
+            elif self.gripper_state:
+                self.send_move(width=0.0)
+                self.get_logger().info('Closing gripper')
             else:
-                self.send_grasp(width=0.0)
-                print("closing")
+                self.send_move(width=0.08)
+                self.get_logger().info('Opening gripper')
 
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -206,11 +219,20 @@ class SpaceMousePublisher(Node):
 
     def gripper_joint_state_callback(self, msg: JointState):
         self.gripper_latest_positions = msg.position
+
+        if len(msg.position) >= 2:
+            gripper_width = float(msg.position[0] + msg.position[1])
+            self.gripper_state = gripper_width > 0.04
  
     def send_grasp(self, width=0.0, speed=0.1, force=20.0,
                     epsilon_inner=1.0, epsilon_outer=1.0):
+        if not self.grasp_client.wait_for_server(timeout_sec=0.0):
+            self.get_logger().warning(
+                'Gripper grasp action server is unavailable; ignoring button press.'
+            )
+            return
+
         self.gripper_reach_flag = False
-        self.grasp_client.wait_for_server()
 
         goal_msg = Grasp.Goal()
         goal_msg.width = width
@@ -221,12 +243,49 @@ class SpaceMousePublisher(Node):
 
         self._send_goal_future = self.grasp_client.send_goal_async(goal_msg)
         self._send_goal_future.add_done_callback(self.goal_response_callback)
-        
+
+
+    def send_move(self, width, speed=0.05):
+        if not self.move_client.wait_for_server(timeout_sec=0.0):
+            self.get_logger().warning(
+                'Gripper move action server is unavailable; ignoring button press.'
+            )
+            return
+
+        self.gripper_reach_flag = False
+
+        goal_msg = Move.Goal()
+        goal_msg.width = width
+        goal_msg.speed = speed
+
+        future = self.move_client.send_goal_async(goal_msg)
+        future.add_done_callback(self.move_goal_response_callback)
+
+    def move_goal_response_callback(self, future):
+        goal_handle = future.result()
+
+        if not goal_handle.accepted:
+            self.get_logger().warning('Gripper move goal rejected.')
+            self.gripper_reach_flag = True
+            return
+
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(self.move_result_callback)
+
+
+    def move_result_callback(self, future):
+        result = future.result().result
+        self.gripper_reach_flag = True
+
+        self.get_logger().info(
+            f'Gripper move finished: success={result.success}, error="{result.error}"'
+            )
 
     def goal_response_callback(self, future):
         goal_handle = future.result()
         if not goal_handle.accepted:
             self.get_logger().info('Goal rejected')
+            self.gripper_reach_flag = True
             return
 
         self._get_result_future = goal_handle.get_result_async()
@@ -239,9 +298,9 @@ class SpaceMousePublisher(Node):
         error = result.error
 
         if success:
-            self.gripper_reach_flag = True
             self.gripper_state = not self.gripper_state
 
+        self.gripper_reach_flag = True
         self.get_logger().info(f'success: {success}, error: "{error}"')
 
 

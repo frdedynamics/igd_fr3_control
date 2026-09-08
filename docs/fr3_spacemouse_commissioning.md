@@ -18,8 +18,14 @@ The ROS user has realtime privileges and unlimited locked memory.
 
 ## Required Franka ROS 2 compatibility changes
 
-The tested system uses `franka_ros2` v3.0.0 (`ad6631e`) with two local
-backports:
+The tested system uses the lab-maintained compatibility branch
+
+`frdedynamics/franka_ros2:commissioning/fr3-jazzy-fixes`
+
+based on `franka_ros2` v3.0.0 (`ad6631e`). The branch contains two backports
+required for the tested Jazzy setup:
+
+
 
 1. Controller manager configuration:
 
@@ -34,9 +40,8 @@ backports:
     franka_gripper/joint_states
     ```
 
-These changes were required for the tested Jazzy setup. The controller-manager
-settings are present in later `franka_ros2` releases, and the gripper topic is
-corrected on the newer Jazzy branch.
+Equivalent controller-manager settings are present in later `franka_ros2`
+releases, and the gripper topic is corrected on the newer Jazzy branch.
 
 The previous ROS control communication dropout was not reproduced during more
 than one hour of operation after commissioning. This should not be interpreted
@@ -66,6 +71,22 @@ Then source the workspace:
 
 ## FR3 bringup
 
+The tested setup uses:
+
+```text
+frdedynamics/franka_ros2:commissioning/fr3-jazzy-fixes
+```
+
+Verify the active Franka ROS 2 checkout before bringup:
+
+```bash
+    cd ~/franka_ros2_ws/src
+    git branch --show-current
+    git rev-parse --short HEAD
+```
+
+The expected branch is `commissioning/fr3-jazzy-fixes`.
+
 Start the robot and MoveIt:
 
 ```bash
@@ -73,6 +94,7 @@ Start the robot and MoveIt:
       robot_ip:=192.170.10.101 \
       robot_type:=fr3 \
       use_fake_hardware:=false
+      load_gripper:=true
 ```
 
 The merged `/joint_states` topic must contain the seven FR3 joints and both
@@ -135,14 +157,14 @@ Button 0 is currently unused.
 
 The following were physically verified:
 
-FR3 MoveIt/RViz motion
-SpaceMouse XYZ translation
-SpaceMouse XYZ rotation
-fine Cartesian control using scales `0.25 / 0.50`
-Franka Hand open/close toggle
-continued SpaceMouse operation after button presses
-stable ROS control operation for more than one hour without reproducing the
-earlier communication dropout
+- FR3 MoveIt/RViz motion
+- SpaceMouse XYZ translation
+- SpaceMouse XYZ rotation
+- fine Cartesian control using scales `0.25 / 0.50`
+- Franka Hand open/close toggle
+- continued SpaceMouse operation after button presses
+- stable ROS control operation on the `commissioning/fr3-jazzy-fixes` branch for
+more than one hour without reproducing the earlier communication dropout
 
 An independent libfranka communication test also completed successfully with
 an average command success rate of `1.00`.

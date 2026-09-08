@@ -26,12 +26,13 @@
       low_pass_filter_coeff: 2.0    # higher = more smoothing, more lag
 
       # ---- Scaling (unitless mode: incoming value * this = actual m/s or rad/s) ---
-      linear_scale: 0.4
-      rotational_scale: 0.8
+      scale:
+        linear: 0.25
+        rotational: 0.50
 
       # ---- Safety -------------------------------------------------------------
       move_group_name: fr3_arm
-      joint_topic: /franka/joint_states
+      joint_topic: /joint_states
       incoming_command_timeout: 0.2   # stop if no new command within this time
       num_outgoing_halt_msgs_to_publish: 4
 

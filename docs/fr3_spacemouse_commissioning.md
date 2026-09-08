@@ -154,3 +154,33 @@ software safeguards only. They do not replace independent physical safety
 mechanisms, workspace supervision, appropriate speed/force limits, or an
 accessible stop/E-stop.
 
+## Network configuration
+
+The FR3 is connected directly to the host's built-in Ethernet interface.
+
+- FR3 robot: `192.170.10.101`
+- host FR3 interface: `enp11s0`
+- host FR3 address: `192.170.10.95/24`
+- NetworkManager profile: `FR3-Direct`
+- IPv4 method: manual
+- no gateway or DNS
+- `ipv4.never-default: yes`
+- `connection.autoconnect: yes`
+
+The USB Ethernet adapter `enxa0cec8f92243` is used separately for the host
+internet connection through the `USB-Internet` profile.
+
+An older USB-to-FR3 profile, `Wired connection 1`, is retained for reference
+but has `connection.autoconnect: no`. This is important because activating that
+profile can place the FR3 subnet on the wrong interface and cause normal routing
+and browser access to the robot to fail even though interface-specific ping
+tests still succeed.
+
+The expected route is:
+
+```text
+192.170.10.101 dev enp11s0 src 192.170.10.95
+```
+
+The direct FR3 link was verified after a power cycle with zero packet loss and
+approximately `0.14 ms` average ICMP round-trip time.
